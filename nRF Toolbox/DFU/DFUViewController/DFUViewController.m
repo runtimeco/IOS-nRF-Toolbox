@@ -382,7 +382,7 @@ currentSpeedBytesPerSecond:(double)speed avgSpeedBytesPerSecond:(double)avgSpeed
 
 -(void)onFileTypeSelected:(DFUFirmwareType)type
 {
-    selectedFirmware = [[DFUFirmware alloc] initWithUrlToBinOrHexFile:selectedFileUrl urlToDatFile:nil type:type];
+    selectedFirmware = [[DFUFirmware alloc] initWithUrlToBinOrHexOrImgFile:selectedFileUrl urlToDatFile:nil type:type];
     
     if (selectedFirmware && selectedFirmware.fileName)
     {

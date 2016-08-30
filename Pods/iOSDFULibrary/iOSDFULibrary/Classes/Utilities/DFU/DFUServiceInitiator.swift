@@ -70,7 +70,8 @@ import CoreBluetooth
     }
     
     func filterBy() -> [CBUUID]? {
-        return [DFUService.UUID]
+        // VVV
+        return [NmgrDfuService.UUID]
     }
 }
 
@@ -118,7 +119,7 @@ import CoreBluetooth
      Default value is 12. Higher values, or disabling it, may speed up the upload process,
      but also cause a buffer overflow and hang the Bluetooth adapter.
      */
-    public var packetReceiptNotificationParameter:UInt16 = 12
+    public var packetReceiptNotificationParameter:UInt16 = 1
     
     /**
      Setting this property to true will prevent from jumping to the DFU Bootloader

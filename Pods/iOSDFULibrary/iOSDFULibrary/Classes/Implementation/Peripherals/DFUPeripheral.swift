@@ -1,4 +1,4 @@
-/*
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           /*
 * Copyright (c) 2016, Nordic Semiconductor
 * All rights reserved.
 *
@@ -27,18 +27,19 @@ import CoreBluetooth
     private let centralManager:CBCentralManager
     /// The DFU Target peripheral.
     private var peripheral:CBPeripheral?
-    
     /// The optional logger delegate.
     private var logger:LoggerHelper
     /// The peripheral delegate.
     internal var delegate:DFUPeripheralDelegate?
     /// Selector used to find the advertising peripheral in DFU Bootloader mode.
     private var peripheralSelector:DFUPeripheralSelector?
-    
+
     // MARK: - DFU properties
     
     /// The DFU Service instance. Not nil when found on the peripheral.
     private var dfuService:DFUService?
+    /// The nmgr DFU Service instance. Not nil when found on the peripheral.
+    private var nmgrDfuService:NmgrDfuService?
     /// A flag set when a command to jump to DFU Bootloader has been sent.
     private var jumpingToBootloader = false
     /// A flag set when a command to activate the new firmware and reset the device has been sent.
@@ -47,6 +48,8 @@ import CoreBluetooth
     private var paused = false
     /// A flag set when upload has been aborted.
     private var aborted = false
+    /// A flag set when device is resetting
+    private var resetting = false
     
     // MARK: - Initialization
     
@@ -83,20 +86,37 @@ import CoreBluetooth
     }
     
     func pause() -> Bool {
-        if !paused && dfuService != nil {
-            paused = true
-            dfuService!.pause()
-            return true
+        if !paused {
+            if dfuService != nil {
+                paused = true
+                dfuService!.pause()
+                return true
+            }
+            
+            if nmgrDfuService != nil {
+                paused = true
+                nmgrDfuService!.pause()
+                return true
+            }
         }
         return false
     }
     
     func resume() -> Bool {
-        if paused && dfuService != nil {
-            paused = false
-            dfuService!.resume()
-            return true
+        if paused {
+            if dfuService != nil {
+                paused = false
+                dfuService!.resume()
+                return true
+            }
+            
+            if nmgrDfuService != nil {
+                paused = false
+                nmgrDfuService!.resume()
+                return true
+            }
         }
+        
         return false
     }
     
@@ -106,6 +126,13 @@ import CoreBluetooth
             aborted = true
             paused = false
             dfuService!.abort()
+        }
+        
+        if nmgrDfuService != nil {
+            logger.w("Upload aborted")
+            aborted = true
+            paused = false
+            nmgrDfuService!.abort()
         }
     }
     
@@ -120,12 +147,19 @@ import CoreBluetooth
         // characteristic was introduced (SDK 7.0.0). It version exists, and we are not
         // in Application mode, then the Init Packet is required.
         
-        if let version = dfuService!.version {
-            // In the application mode we don't know whether init packet is required
-            // as the app is indepenrent from the DFU Bootloader.
-            let isInApplicationMode = version.major == 0 && version.minor == 1
-            return !isInApplicationMode
+        if dfuService != nil {
+            if let version = dfuService!.version {
+                // In the application mode we don't know whether init packet is required
+                // as the app is indepenrent from the DFU Bootloader.
+                let isInApplicationMode = version.major == 0 && version.minor == 1
+                return !isInApplicationMode
+            }
         }
+        
+        if nmgrDfuService != nil {
+            return true
+        }
+        
         return false
     }
     
@@ -133,10 +167,19 @@ import CoreBluetooth
      Enables notifications on DFU Control Point characteristic.
      */
     func enableControlPoint() {
-        dfuService!.enableControlPoint(
-            onSuccess: { self.delegate?.onControlPointEnabled() },
-            onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message) }
-        )
+        if dfuService != nil {
+            dfuService!.enableControlPoint(
+                onSuccess:  { self.delegate?.onControlPointEnabled() },
+                onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message) }
+            )
+        }
+        
+        if nmgrDfuService != nil {
+            nmgrDfuService!.enableControlPoint(
+                onSuccess: { self.delegate?.onControlPointEnabled() },
+                onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message)}
+            )
+        }
     }
     
     /**
@@ -148,7 +191,15 @@ import CoreBluetooth
      - returns: true if device needs buttonless jump to DFU Bootloader mode
      */
     func isInApplicationMode(forceDfu:Bool) -> Bool {
-        let applicationMode = dfuService!.isInApplicationMode() ?? !forceDfu
+        var applicationMode = true
+        
+        if dfuService != nil {
+            applicationMode = dfuService!.isInApplicationMode() ?? !forceDfu
+        }
+        
+        if nmgrDfuService != nil {
+            applicationMode = nmgrDfuService!.isInApplicationMode() ?? !forceDfu
+        }
         
         if applicationMode {
             logger.w("Application with buttonless update found")
@@ -180,17 +231,23 @@ import CoreBluetooth
      - parameter size: the size of all parts of the firmware
      */
     func sendStartDfuWithFirmwareType(type:UInt8, andSize size:DFUFirmwareSize) {
-        dfuService!.sendDfuStartWithFirmwareType(type, andSize: size,
-            onSuccess: { self.delegate?.onStartDfuSent() },
-            onError: { error, message in
-                if error == DFUError.RemoteNotSupported {
-                    self.logger.w("DFU target does not support DFU v.2")
-                    self.delegate?.onStartDfuWithTypeNotSupported()
-                } else {
-                    self.delegate?.didErrorOccur(error, withMessage: message)
+        if dfuService != nil {
+            dfuService!.sendDfuStartWithFirmwareType(type, andSize: size,
+                onSuccess: { self.delegate?.onStartDfuSent() },
+                onError: { error, message in
+                    if error == DFUError.RemoteNotSupported {
+                        self.logger.w("DFU target does not support DFU v.2")
+                        self.delegate?.onStartDfuWithTypeNotSupported()
+                    } else {
+                        self.delegate?.didErrorOccur(error, withMessage: message)
+                    }
                 }
-            }
-        )
+            )
+        }
+        
+        if nmgrDfuService != nil {
+            delegate?.onStartDfuSent()
+        }
     }
     
     /**
@@ -201,11 +258,17 @@ import CoreBluetooth
      - parameter size: the size of all parts of the firmware, where size of softdevice and bootloader are 0
      */
     func sendStartDfuWithFirmwareSize(size:DFUFirmwareSize) {
-        logger.v("Switching to DFU v.1")
-        dfuService!.sendStartDfuWithFirmwareSize(size,
-            onSuccess: { self.delegate?.onStartDfuSent() },
-            onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message) }
-        )
+        if dfuService != nil {
+            logger.v("Switching to DFU v.1")
+            dfuService!.sendStartDfuWithFirmwareSize(size,
+                onSuccess: { self.delegate?.onStartDfuSent() },
+                onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message) }
+            )
+        }
+        
+        if nmgrDfuService != nil {
+            self.delegate?.onStartDfuSent()
+        }
     }
     
     /**
@@ -215,10 +278,20 @@ import CoreBluetooth
      - parameter data: Init Packet data
      */
     func sendInitPacket(data:NSData) {
-        dfuService!.sendInitPacket(data,
-            onSuccess: { self.delegate?.onInitPacketSent() },
-            onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message) }
-        )
+        
+        if dfuService != nil {
+            dfuService!.sendInitPacket(data,
+                onSuccess: { self.delegate?.onInitPacketSent() },
+                onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message) }
+           )
+        }
+        
+        if nmgrDfuService != nil {
+            nmgrDfuService!.sendInitPacket(data,
+                onSuccess: { self.delegate?.onInitPacketSent() },
+                onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message) }
+            )
+        }
     }
     
     /**
@@ -232,17 +305,28 @@ import CoreBluetooth
      - parameter progressDelegate: the deleagate that will be informed about progress changes
      */
     func sendFirmware(firmware:DFUFirmware, withPacketReceiptNotificationNumber number:UInt16, andReportProgressTo progressDelegate:DFUProgressDelegate?) {
-        dfuService!.sendPacketReceiptNotificationRequest(number,
-            onSuccess: {
-                // Now the service is ready to send the firmware
-                self.dfuService!.sendFirmware(firmware, withPacketReceiptNotificationNumber: number,
-                    onProgress: progressDelegate,
+        if dfuService != nil {
+            dfuService!.sendPacketReceiptNotificationRequest(number,
+                onSuccess: {
+                    // Now the service is ready to send the firmware
+                    self.dfuService!.sendFirmware(firmware, withPacketReceiptNotificationNumber: number,
+                        onProgress: progressDelegate,
+                        onSuccess: { self.delegate?.onFirmwareSent() },
+                        onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message) }
+                    )
+                },
+                onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message) }
+            )
+        }
+        
+        if nmgrDfuService != nil {
+            // Now the service is ready to send the firmware
+            self.nmgrDfuService!.sendFirmware(firmware, withPacketReceiptNotificationNumber: number,
+                onProgress: progressDelegate,
                     onSuccess: { self.delegate?.onFirmwareSent() },
                     onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message) }
                 )
-            },
-            onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message) }
-        )
+        }
     }
     
     /**
@@ -250,21 +334,44 @@ import CoreBluetooth
      On success, the `delegate.onFirmwareVerified()` method will be called.
      */
     func validateFirmware() {
-        dfuService!.sendValidateFirmwareRequest(
-            onSuccess: { self.delegate?.onFirmwareVerified() },
-            onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message) }
-        )
+        if dfuService != nil {
+            dfuService!.sendValidateFirmwareRequest(
+                onSuccess: { self.delegate?.onFirmwareVerified() },
+                onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message) }
+            )
+        }
+        
+        if nmgrDfuService != nil {
+            self.delegate?.onFirmwareVerified()
+        }
     }
     
+    /**
+     Sends a reset peripheral state
+    */
+    func resetInvalidState() {
+        resetting = true
+    }
+
     /**
      Sends the Activate and Reset command to the DFU Control Point characteristic.
      */
     func activateAndReset() {
         activating = true
-        dfuService!.sendActivateAndResetRequest(
-            // onSuccess the device gets disconnected and centralManager(_:didDisconnectPeripheral:error) will be called
-            onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message) }
-        )
+        
+        if dfuService != nil {
+            dfuService!.sendActivateAndResetRequest(
+                // onSuccess the device gets disconnected and centralManager(_:didDisconnectPeripheral:error) will be called
+                onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message) }
+            )
+        }
+        
+        if nmgrDfuService != nil {
+            nmgrDfuService!.sendActivateAndResetRequest(
+                // onSuccess the device gets disconnected and centralManager(_:didDisconnectPeripheral:error) will be called
+                onError: { error, message in self.delegate?.didErrorOccur(error, withMessage: message) }
+            )
+        }
     }
     
     /**
@@ -281,6 +388,7 @@ import CoreBluetooth
         self.peripheral!.delegate = nil
         self.peripheral = nil
         self.dfuService = nil
+        self.nmgrDfuService = nil
         
         self.peripheralSelector = selector
         logger.v("Scanning for the DFU Bootloader...")
@@ -313,7 +421,7 @@ import CoreBluetooth
         // Discover all device services. In case there is no DFU Version characteristic the service
         // will determine whether to jump to the DFU Bootloader mode, or not, based on number of services.
         logger.v("Discovering services...")
-        logger.d("periphera.discoverServices(nil)")
+        logger.d("peripheral.discoverServices(nil)")
         peripheral.delegate = self
         peripheral.discoverServices(nil)
     }
@@ -333,13 +441,17 @@ import CoreBluetooth
     
     func centralManager(central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: NSError?) {
         // When device got disconnected due to a buttonless jump or a firmware activation, it is handled differently
-        if jumpingToBootloader || activating || aborted {
+        if jumpingToBootloader || activating || aborted || resetting {
             // This time we expect an error with code = 7: "The specified device has disconnected from us." (graceful disconnect)
             // or code = 6: "The connection has timed out unexpectedly." (in case it disconnected before sending the ACK).
             if error != nil {
                 logger.d("[Callback] Central Manager did disconnect peripheral")
                 if error!.code == 7 || error!.code == 6 {
                     logger.i("Disconnected by the remote device")
+                    if resetting {
+                        //We need to reconnect
+                        self.delegate?.onDeviceReportedInvalidState()
+                    }
                 } else {
                     // This should never happen...
                     logger.e(error!)
@@ -420,7 +532,20 @@ import CoreBluetooth
                     
                     // DFU Service has been found. Discover characteristics...
                     dfuService = DFUService(service, logger)
+                    dfuService?.targetPeripheral = self
                     dfuService!.discoverCharacteristics(
+                        onSuccess: { () -> () in self.delegate?.onDeviceReady() },
+                        onError: { (error, message) -> () in self.delegate?.didErrorOccur(error, withMessage: message) }
+                    )
+                }
+                
+                if NmgrDfuService.matches(service) {
+                    logger.v("Nmgr DFU Service found")
+                    
+                    // Nmgr DFU Service has been found. Discover characteristics...
+                    nmgrDfuService = NmgrDfuService(service, logger)
+                    nmgrDfuService?.targetPeripheral = self
+                    nmgrDfuService!.discoverCharacteristics(
                         onSuccess: { () -> () in self.delegate?.onDeviceReady() },
                         onError: { (error, message) -> () in self.delegate?.didErrorOccur(error, withMessage: message) }
                     )
@@ -429,8 +554,14 @@ import CoreBluetooth
             
             if dfuService == nil {
                 logger.e("DFU Service not found")
-                // The device does not support DFU, nor buttonless jump
-                delegate?.didErrorOccur(DFUError.DeviceNotSupported, withMessage: "DFU Service not found")
+            }
+            
+            if nmgrDfuService == nil {
+                logger.e("Nmgr DFU Service not found")
+            }
+            
+            if nmgrDfuService == nil && dfuService == nil {
+                delegate?.didErrorOccur(DFUError.DeviceNotSupported, withMessage: "DFU Services not found")
             }
         }
     }
@@ -439,6 +570,7 @@ import CoreBluetooth
     
     private func cleanUp() {
         dfuService = nil
+        nmgrDfuService = nil
     }
     
     private func logCentralManagerState(state:CBCentralManagerState) {

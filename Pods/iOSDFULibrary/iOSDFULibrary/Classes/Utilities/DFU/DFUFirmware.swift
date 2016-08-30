@@ -132,16 +132,17 @@ The type of the BIN or HEX file.
      
      - returns: the DFU firmware object or null in case of an error
      */
-    public init?(urlToBinOrHexFile:NSURL, urlToDatFile:NSURL?, type:DFUFirmwareType) {
-        self.fileUrl = urlToBinOrHexFile
-        self.fileName = urlToBinOrHexFile.lastPathComponent!
+    public init?(urlToBinOrHexOrImgFile:NSURL, urlToDatFile:NSURL?, type:DFUFirmwareType) {
+        self.fileUrl = urlToBinOrHexOrImgFile
+        self.fileName = urlToBinOrHexOrImgFile.lastPathComponent!
         
         // Quickly check if it's a BIN file
-        let ext = urlToBinOrHexFile.pathExtension
+        let ext = urlToBinOrHexOrImgFile.pathExtension
         let bin = ext != nil && ext!.caseInsensitiveCompare("bin") == .OrderedSame
         let hex = ext != nil && ext!.caseInsensitiveCompare("hex") == .OrderedSame
-        if !bin && !hex {
-            NSLog("\(self.fileName) is not a BIN or HEX file")
+        let img = ext != nil && ext!.caseInsensitiveCompare("img") == .OrderedSame
+        if !bin && !hex && !img {
+            NSLog("\(self.fileName) is not a BIN, HEX or IMG file")
             stream = nil
             super.init()
             return nil
@@ -158,9 +159,11 @@ The type of the BIN or HEX file.
         }
         
         if bin {
-            stream = DFUStreamBin(urlToBinFile: urlToBinOrHexFile, urlToDatFile: urlToDatFile, type: type)
+            stream = DFUStreamBin(urlToBinFile: urlToBinOrHexOrImgFile, urlToDatFile: urlToDatFile, type: type)
+        } else if hex {
+            stream = DFUStreamHex(urlToHexFile: urlToBinOrHexOrImgFile, urlToDatFile: urlToDatFile, type: type)
         } else {
-            stream = DFUStreamHex(urlToHexFile: urlToBinOrHexFile, urlToDatFile: urlToDatFile, type: type)
+            stream = DFUStreamBin(urlToBinFile: urlToBinOrHexOrImgFile, urlToDatFile: urlToDatFile, type: type)
         }
         super.init()
     }
@@ -170,7 +173,7 @@ The type of the BIN or HEX file.
     }
     
     internal var initPacket:NSData? {
-        return stream!.initPacket
+        return stream!.data
     }
     
     internal func hasNextPart() -> Bool {

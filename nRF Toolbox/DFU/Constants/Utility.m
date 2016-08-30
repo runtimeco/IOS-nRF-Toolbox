@@ -26,6 +26,7 @@
 
 NSString * const dfuServiceUUIDString  = @"00001530-1212-EFDE-1523-785FEABCD123";
 NSString * const ANCSServiceUUIDString = @"7905F431-B5CE-4E99-A40F-4B1E122D00D0";
+NSString * const nmgrDfuServiceUUIDString = @"8D53DC1D-1DB7-4CD3-868B-8A527460AA84";
 
 +(NSString *) getDFUHelpText
 {

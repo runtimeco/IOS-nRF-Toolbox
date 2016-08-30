@@ -26,6 +26,7 @@
 
 extern NSString * const dfuServiceUUIDString;
 extern NSString * const ANCSServiceUUIDString;
+extern NSString * const nmgrDfuServiceUUIDString;
 
 + (NSString *) getDFUHelpText;
 + (void) showAlert:(NSString *)message;

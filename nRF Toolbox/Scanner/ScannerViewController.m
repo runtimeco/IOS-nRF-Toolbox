@@ -101,6 +101,7 @@
     {
         CBUUID *dfuServiceUUID = [CBUUID UUIDWithString:dfuServiceUUIDString];
         CBUUID *ancsServiceUUID = [CBUUID UUIDWithString:ANCSServiceUUIDString];
+        CBUUID *nmgrDfuServiceUUID = [CBUUID UUIDWithString:nmgrDfuServiceUUIDString];
         NSArray *connectedPeripherals = [bluetoothManager retrieveConnectedPeripheralsWithServices:@[dfuServiceUUID, ancsServiceUUID]];
         
         for (CBPeripheral *connectedPeripheral in connectedPeripherals)
